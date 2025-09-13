@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="Gradle: com.github.ajalt.clikt:clikt-jvm:4.2.1" type="java-imported" external-system-id="GRADLE">
+    <properties groupId="com.github.ajalt.clikt" artifactId="clikt-jvm" version="4.2.1" baseVersion="4.2.1" />
+    <CLASSES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.ajalt.clikt/clikt-jvm/4.2.1/2f1168ff4b8e80b3e7d3e77eb7295b645e9010cd/clikt-jvm.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

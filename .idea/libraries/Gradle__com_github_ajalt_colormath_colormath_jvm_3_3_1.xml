@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="Gradle: com.github.ajalt.colormath:colormath-jvm:3.3.1" type="java-imported" external-system-id="GRADLE">
+    <properties groupId="com.github.ajalt.colormath" artifactId="colormath-jvm" version="3.3.1" baseVersion="3.3.1" />
+    <CLASSES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.ajalt.colormath/colormath-jvm/3.3.1/8475ca9382172e02871460463283721071306165/colormath-jvm.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
