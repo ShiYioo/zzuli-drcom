@@ -13,6 +13,15 @@
           </set>
         </option>
       </GradleProjectSettings>
+      <GradleProjectSettings>
+        <option name="externalProjectPath" value="$PROJECT_DIR$/gui" />
+        <option name="gradleJvm" value="azul-21 (2)" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$/gui" />
+          </set>
+        </option>
+      </GradleProjectSettings>
     </option>
   </component>
 </project>
