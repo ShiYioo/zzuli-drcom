@@ -102,69 +102,166 @@ class LoginController : Initializable {
 
     @FXML
     private fun handleLogin() {
+        println("登录开始...")
+
+        // 防止重复点击 - 如果正在登录中，直接返回
+        if (loginJob?.isActive == true) {
+            println("登录已在进行中，忽略重复点击")
+            return
+        }
+
+        // 先清理之前的连接
+        drcomClient?.disconnect()
+        drcomClient = null
+
         val username = usernameField.text.trim()
         val password = passwordField.text
         val server = serverField.text.trim()
 
         // 输入验证
         if (username.isEmpty()) {
+            println("用户名为空")
             showError("请输入用户名")
             usernameField.requestFocus()
             return
         }
 
         if (password.isEmpty()) {
+            println("密码为空")
             showError("请输入密码")
             passwordField.requestFocus()
             return
         }
 
         if (server.isEmpty()) {
+            println("服务器地址为空")
             showError("请输入服务器地址")
             serverField.requestFocus()
             return
         }
 
-        // 开始登录
-        setLoginState(true)
+        println("开始设置登录状态...")
+        // 开始登录 - 直接设置 UI 状态
+        loginButton.isVisible = false
+        disconnectButton.isVisible = false
+        progressIndicator.isVisible = true
+        usernameField.isDisable = true
+        passwordField.isDisable = true
+        serverField.isDisable = true
+        rememberCheckBox.isDisable = true
+        autoLoginCheckBox.isDisable = true
+        statusLabel.text = "正在连接到服务器..."
 
-        loginJob = CoroutineScope(Dispatchers.Main).launch {
+        println("启动协程...")
+        loginJob = CoroutineScope(Dispatchers.IO).launch {
             try {
+                println("创建配置...")
                 val config = DrComConfig.create(username, password, server)
+                println("创建客户端...")
                 drcomClient = DrComClient(config)
 
-                statusLabel.text = "正在连接到服务器..."
+                println("开始登录...")
+                val success = drcomClient?.login() ?: false
+                println("登录结果: $success")
 
-                val success = withContext(Dispatchers.IO) {
-                    drcomClient?.login() ?: false
-                }
+                Platform.runLater {
+                    println("更新UI...")
+                    if (success) {
+                        println("登录成功，更新UI...")
+                        statusLabel.text = "登录成功！"
+                        statusLabel.styleClass.removeAll("error-text", "info-text")
+                        statusLabel.styleClass.add("success-text")
+                        saveCredentials()
 
-                if (success) {
-                    showSuccess("登录成功！")
-                    saveCredentials()
-                    setConnectedState()
-                } else {
-                    showError("登录失败，请检查用户名和密码")
-                    setLoginState(false)
+                        // 设置连接状态
+                        loginButton.isVisible = false
+                        disconnectButton.isVisible = true
+                        progressIndicator.isVisible = false
+                        // 保持输入框禁用状态
+                    } else {
+                        println("登录失败，清理连接并更新UI...")
+                        // 登录失败时清理连接
+                        drcomClient?.disconnect()
+                        drcomClient = null
+
+                        statusLabel.text = "登录失败，请检查用户名和密码"
+                        statusLabel.styleClass.removeAll("success-text", "info-text")
+                        statusLabel.styleClass.add("error-text")
+
+                        // 恢复登录状态
+                        loginButton.isVisible = true
+                        disconnectButton.isVisible = false
+                        progressIndicator.isVisible = false
+                        usernameField.isDisable = false
+                        passwordField.isDisable = false
+                        serverField.isDisable = false
+                        rememberCheckBox.isDisable = false
+                        autoLoginCheckBox.isDisable = false
+                    }
                 }
 
             } catch (e: Exception) {
-                showError("连接失败: ${e.message}")
-                setLoginState(false)
+                println("登录异常: ${e.message}")
+                e.printStackTrace()
+
+                // 异常时清理连接
+                drcomClient?.disconnect()
+                drcomClient = null
+
+                Platform.runLater {
+                    println("异常，更新UI...")
+                    statusLabel.text = "连接失败: ${e.message}"
+                    statusLabel.styleClass.removeAll("success-text", "info-text")
+                    statusLabel.styleClass.add("error-text")
+
+                    // 恢复登录状态
+                    loginButton.isVisible = true
+                    disconnectButton.isVisible = false
+                    progressIndicator.isVisible = false
+                    usernameField.isDisable = false
+                    passwordField.isDisable = false
+                    serverField.isDisable = false
+                    rememberCheckBox.isDisable = false
+                    autoLoginCheckBox.isDisable = false
+                }
             }
         }
+        println("协程已启动")
     }
 
     @FXML
     private fun handleDisconnect() {
-        loginJob?.cancel()
-        drcomClient?.disconnect()
-        drcomClient = null
+        println("开始断开连接...")
 
-        setLoginState(false)
+        // 取消登录任务
+        loginJob?.cancel()
+        loginJob = null
+
+        // 清理客户端连接
+        try {
+            drcomClient?.disconnect()
+            println("客户端连接已清理")
+        } catch (e: Exception) {
+            println("清理连接时出错: ${e.message}")
+        } finally {
+            drcomClient = null
+        }
+
+        // 恢复UI状态
+        loginButton.isVisible = true
+        disconnectButton.isVisible = false
+        progressIndicator.isVisible = false
+        usernameField.isDisable = false
+        passwordField.isDisable = false
+        serverField.isDisable = false
+        rememberCheckBox.isDisable = false
+        autoLoginCheckBox.isDisable = false
+
         statusLabel.text = "已断开连接"
         statusLabel.styleClass.removeAll("success-text", "error-text")
         statusLabel.styleClass.add("info-text")
+
+        println("断开连接完成")
     }
 
     private fun setLoginState(isLogging: Boolean) {

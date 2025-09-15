@@ -30,14 +30,18 @@ data class DrComConfig(
 
                 activeInterface?.hostAddress ?: "192.168.1.100"
             } catch (e: Exception) {
+                println("[自动获取IP] 获取本机IP失败: ${e.message}, 使用默认值")
                 "192.168.1.100"
             }
         }
 
         private fun getHostName(): String {
             return try {
-                InetAddress.getLocalHost().hostName
+                val hostname = InetAddress.getLocalHost().hostName
+                println("[自动获取主机名] 检测到主机名: $hostname")
+                hostname
             } catch (e: Exception) {
+                println("[自动获取主机名] 获取主机名失败: ${e.message}, 使用默认值")
                 "DRCOM-CLIENT"
             }
         }
@@ -53,40 +57,69 @@ data class DrComConfig(
                     for (i in macBytes.indices) {
                         mac = (mac shl 8) + (macBytes[i].toInt() and 0xFF)
                     }
+
+                    val macStr = macBytes.joinToString(":") { "%02x".format(it) }
+                    println("[自动获取MAC] 检测到MAC地址: $macStr")
                     return mac
                 }
+
+                println("[自动获取MAC] 未找到可用网络接口，使用默认MAC地址")
                 0x20689df3d066L
             } catch (e: Exception) {
+                println("[自动获取MAC] 获取MAC地址失败: ${e.message}, 使用默认值")
                 0x20689df3d066L
             }
         }
 
         private fun getOsInfo(): String {
             val osName = System.getProperty("os.name", "Unknown")
-            return when {
+            val osVersion = System.getProperty("os.version", "")
+
+            val detectedOs = when {
                 osName.contains("Windows", ignoreCase = true) -> "WINDOWS"
                 osName.contains("Mac", ignoreCase = true) -> "MACOS"
                 osName.contains("Linux", ignoreCase = true) -> "LINUX"
+                osName.contains("Unix", ignoreCase = true) -> "UNIX"
                 else -> "UNKNOWN"
             }
+
+            println("[自动获取系统] 检测到操作系统: $osName $osVersion -> $detectedOs")
+            return detectedOs
         }
 
         fun create(username: String, password: String, server: String = "10.30.1.19"): DrComConfig {
-            return DrComConfig(
+            println("=== 自动检测网络配置 ===")
+
+            val hostIp = getLocalIpAddress()
+            val hostName = getHostName()
+            val mac = getMacAddress()
+            val hostOs = getOsInfo()
+
+            val config = DrComConfig(
                 server = server,
                 username = username,
                 password = password,
-                hostIp = getLocalIpAddress(),
-                hostName = getHostName(),
-                mac = getMacAddress(),
-                hostOs = getOsInfo()
+                hostIp = hostIp,
+                hostName = hostName,
+                mac = mac,
+                hostOs = hostOs
             )
+
+            println("检测到的配置信息:")
+            println("- 服务器地址: ${config.server}")
+            println("- 本机IP: ${config.hostIp}")
+            println("- 主机名: ${config.hostName}")
+            println("- 操作系统: ${config.hostOs}")
+            println("- MAC地址: ${String.format("%012x", config.mac)}")
+            println("========================")
+
+            return config
         }
     }
 }
 
 class DrComClient(private val config: DrComConfig) {
-    private var socket: DatagramSocket? = null
+    private lateinit var socket: DatagramSocket
     private var salt: ByteArray = byteArrayOf()
     private var packageTail: ByteArray = byteArrayOf()
     private var isAuthenticated = false
@@ -100,11 +133,19 @@ class DrComClient(private val config: DrComConfig) {
         val AUTH_VERSION = byteArrayOf(0x22, 0x00)
     }
 
+    init {
+        initializeSocket()
+    }
+
     private fun initializeSocket() {
         try {
             socket = DatagramSocket(PORT)
-            socket?.soTimeout = 3000
+            socket.soTimeout = 3000
+            println("Socket initialized successfully on port $PORT")
         } catch (e: Exception) {
+            println("Error initializing socket: ${e.message}")
+            println("Cannot get the right port, this program may not authenticate correctly")
+            Thread.sleep(5000)
             throw RuntimeException("无法初始化网络连接: ${e.message}")
         }
     }
@@ -116,29 +157,30 @@ class DrComClient(private val config: DrComConfig) {
     private fun challenge(server: String, random: Int): ByteArray {
         val serverAddr = InetAddress.getByName(server)
 
-        repeat(5) { // 最多重试5次
+        while (true) {
+            val randomBytes = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN)
+                .putShort((random % 0xFFFF).toShort()).array()
+
+            val packet = byteArrayOf(0x01, 0x02) + randomBytes + byteArrayOf(0x09) + ByteArray(15)
+
+            socket.send(DatagramPacket(packet, packet.size, serverAddr, PORT))
+
             try {
-                val randomBytes = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN)
-                    .putShort((random % 0xFFFF).toShort()).array()
-
-                val packet = byteArrayOf(0x01, 0x02) + randomBytes + byteArrayOf(0x09) + ByteArray(15)
-                socket?.send(DatagramPacket(packet, packet.size, serverAddr, PORT))
-
                 val buffer = ByteArray(1024)
                 val receivePacket = DatagramPacket(buffer, buffer.size)
-                socket?.receive(receivePacket)
+                socket.receive(receivePacket)
 
                 if (receivePacket.address == serverAddr && receivePacket.port == PORT) {
-                    val data = receivePacket.data.sliceArray(0 until receivePacket.length)
+                    val data = receivePacket.data.sliceArray(0..receivePacket.length - 1)
                     if (data[0] == 0x02.toByte()) {
                         return data.sliceArray(4..7)
                     }
                 }
             } catch (_: SocketTimeoutException) {
-                return@repeat
+                println("[challenge] timeout, retrying...")
+                continue
             }
         }
-        throw RuntimeException("Challenge 失败，无法连接到服务器")
     }
 
     private fun checksum(data: ByteArray): ByteArray {
@@ -150,129 +192,161 @@ class DrComClient(private val config: DrComConfig) {
             ret = ret xor value
             i += 4
         }
-
         ret = (1968 * ret) and 0xFFFFFFFFL
         return ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(ret.toInt()).array()
     }
 
-    suspend fun login(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            initializeSocket()
+    private fun makeLoginPacket(salt: ByteArray, username: String, password: String, mac: Long): ByteArray {
+        val hostIpBytes = config.hostIp.split('.').map { it.toInt().toByte() }.toByteArray()
 
-            // Challenge 阶段
-            val random = Random.nextInt(0, 0xFFFF)
-            salt = challenge(config.server, random)
+        var data = byteArrayOf(0x03, 0x01, 0x00, (username.length + 20).toByte())
+        data += md5(byteArrayOf(0x03, 0x01) + salt + password.toByteArray())
+        data += username.toByteArray().padEnd(36)
+        data += CONTROL_CHECK_STATUS
+        data += ADAPTER_NUM
 
-            // Login 阶段
-            val md5a = md5(byteArrayOf(0x03, 0x01) + salt + config.password.toByteArray())
+        // MAC XOR MD5
+        val macBytes = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putLong(mac).array().sliceArray(2..7)
+        val md5Hex = data.sliceArray(4..9)
+        val xorResult = ByteArray(6)
+        for (i in 0..5) {
+            xorResult[i] = (md5Hex[i].toInt() xor macBytes[i].toInt()).toByte()
+        }
+        data += xorResult
 
-            // 构建登录包
-            val data = buildLoginPacket(md5a)
+        // MD5-2
+        data += md5(byteArrayOf(0x01) + password.toByteArray() + salt + ByteArray(4))
 
-            val serverAddr = InetAddress.getByName(config.server)
-            socket?.send(DatagramPacket(data, data.size, serverAddr, PORT))
+        data += byteArrayOf(0x01) // NIC count
+        data += hostIpBytes // IP address
+        data += ByteArray(12) // IP addresses 2,3,4
 
-            // 接收响应
-            val buffer = ByteArray(1024)
-            val receivePacket = DatagramPacket(buffer, buffer.size)
-            socket?.receive(receivePacket)
+        // MD5-3
+        data += md5(data + byteArrayOf(0x14, 0x00, 0x07, 0x0b)).sliceArray(0..7)
 
-            val response = receivePacket.data.sliceArray(0 until receivePacket.length)
+        data += IPDOG
+        data += ByteArray(4) // delimiter
+        data += config.hostName.toByteArray().padEnd(32)
+        data += byteArrayOf(0x72, 0x72, 0x72, 0x72) // Primary DNS
+        data += byteArrayOf(0x0a, 0xff.toByte(), 0x00, 0xc5.toByte()) // DHCP server
+        data += byteArrayOf(0x08, 0x08, 0x08, 0x08) // Secondary DNS
+        data += ByteArray(8) // delimiter
+        data += byteArrayOf(0x94.toByte(), 0x00, 0x00, 0x00) // unknown
+        data += byteArrayOf(0x05, 0x00, 0x00, 0x00) // OS major
+        data += byteArrayOf(0x01, 0x00, 0x00, 0x00) // OS minor
+        data += byteArrayOf(0x28, 0x0a, 0x00, 0x00) // OS build
+        data += byteArrayOf(0x02, 0x00, 0x00, 0x00) // OS unknown
+        data += config.hostOs.toByteArray().padEnd(32)
+        data += ByteArray(96)
+        data += AUTH_VERSION
+        data += byteArrayOf(0x02, 0x0c)
 
-            if (response[0] == 0x04.toByte()) {
-                packageTail = response.sliceArray(23..38)
-                isAuthenticated = true
-                startKeepAlive()
-                return@withContext true
-            } else {
-                return@withContext false
+        val macBytes8 = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putLong(mac).array()
+        data += checksum(data + byteArrayOf(0x01, 0x26, 0x07, 0x11, 0x00, 0x00) + macBytes8.sliceArray(2..7))
+        data += byteArrayOf(0x00, 0x00) // delimiter
+        data += macBytes8.sliceArray(2..7) // MAC
+        data += byteArrayOf(0x00) // auto logout
+        data += byteArrayOf(0x00) // broadcast mode
+        data += byteArrayOf(0xc2.toByte(), 0x66)
+
+        return data
+    }
+
+    suspend fun login(): Boolean {
+        val serverAddr = InetAddress.getByName(config.server)
+        var attempts = 0
+
+        while (true) {
+            try {
+                salt = challenge(config.server, (Instant.now().epochSecond + Random.nextInt(0xF, 0xFF)).toInt())
+                val packet = makeLoginPacket(salt, config.username, config.password, config.mac)
+
+                socket.send(DatagramPacket(packet, packet.size, serverAddr, PORT))
+                println("[login] packet sent.")
+
+                val buffer = ByteArray(1024)
+                val receivePacket = DatagramPacket(buffer, buffer.size)
+                socket.receive(receivePacket)
+
+                if (receivePacket.address == serverAddr && receivePacket.port == PORT) {
+                    val data = receivePacket.data.sliceArray(0..receivePacket.length - 1)
+                    if (data[0] == 0x04.toByte()) {
+                        println("[login] login successful")
+                        packageTail = data.sliceArray(23..38)
+                        isAuthenticated = true
+                        startKeepAlive()
+                        return true
+                    }
+                }
+            } catch (e: Exception) {
+                attempts++
+                if (attempts >= 5) {
+                    println("[login] login failed after 5 attempts")
+                    return false
+                }
+                println("[login] attempt $attempts failed, retrying...")
+                delay(1000)
             }
-        } catch (e: Exception) {
-            throw RuntimeException("登录失败: ${e.message}")
         }
     }
 
-    private fun buildLoginPacket(md5a: ByteArray): ByteArray {
-        val packet = mutableListOf<Byte>()
+    private fun keepAlive1() {
+        try {
+            val time = (Instant.now().epochSecond % 0xFFFF).toShort()
+            val timeBytes = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN).putShort(time).array()
 
-        // 基本信息
-        packet.add(0x03.toByte())
-        packet.add(0x01.toByte())
-        packet.add(0x00.toByte())
-        packet.add((config.username.length + 20).toByte())
+            var data = byteArrayOf(0xff.toByte())
+            data += md5(byteArrayOf(0x03, 0x01) + salt + config.password.toByteArray())
+            data += ByteArray(3)
+            data += packageTail
+            data += timeBytes
+            data += ByteArray(4)
 
-        // MD5A
-        packet.addAll(md5a.toList())
+            val serverAddr = InetAddress.getByName(config.server)
+            socket.send(DatagramPacket(data, data.size, serverAddr, PORT))
 
-        // 用户名
-        packet.addAll(config.username.toByteArray().toList())
-        repeat(36 - config.username.length) { packet.add(0x00) }
+            val buffer = ByteArray(1024)
+            val receivePacket = DatagramPacket(buffer, buffer.size)
+            socket.receive(receivePacket)
 
-        // 其他必要字段
-        packet.add(CONTROL_CHECK_STATUS)
-        packet.add(ADAPTER_NUM)
-
-        // IP 地址
-        val ipBytes = config.hostIp.split(".").map { it.toInt().toByte() }
-        packet.addAll(ipBytes)
-
-        // MAC 地址
-        val macBytes = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(config.mac).array()
-        packet.addAll(macBytes.sliceArray(0..5).toList())
-
-        // MD5B
-        val md5b = md5(byteArrayOf(0x01) + config.password.toByteArray() + salt + ByteArray(4))
-        packet.addAll(md5b.toList())
-
-        // 主机信息
-        packet.addAll(config.hostName.toByteArray().take(32).toList())
-        repeat(32 - minOf(config.hostName.length, 32)) { packet.add(0x00) }
-
-        // DNS
-        val dnsBytes = config.primaryDns.split(".").map { it.toInt().toByte() }
-        packet.addAll(dnsBytes)
-
-        // DHCP
-        val dhcpBytes = config.dhcpServer.split(".").map { it.toInt().toByte() }
-        packet.addAll(dhcpBytes)
-
-        // 其他字段
-        packet.addAll(ByteArray(8).toList()) // OSVersionInfoSize
-        packet.addAll(config.hostOs.toByteArray().take(32).toList())
-        repeat(32 - minOf(config.hostOs.length, 32)) { packet.add(0x00) }
-
-        // 添加其他必要的固定字段
-        packet.addAll(ByteArray(96).toList())
-
-        return packet.toByteArray()
+            println("[keep-alive1] heartbeat sent")
+        } catch (e: Exception) {
+            println("[keep-alive1] error: ${e.message}")
+        }
     }
 
     private fun startKeepAlive() {
         keepAliveJob = CoroutineScope(Dispatchers.IO).launch {
-            var tail = 0
+            println("[keep-alive] starting keep-alive daemon...")
+
             while (isAuthenticated) {
                 try {
-                    sendKeepAlive(tail)
-                    tail = (tail + 1) % 256
-                    delay(20000) // 20秒发送一次保活包
+                    keepAlive1()
+                    delay(20000) // 20 seconds interval
                 } catch (e: Exception) {
-                    break
+                    println("[keep-alive] error: ${e.message}")
+                    delay(5000)
                 }
             }
         }
     }
 
-    private fun sendKeepAlive(tail: Int) {
-        val packet = byteArrayOf(0xff.toByte()) + md5("".toByteArray()).sliceArray(0..2) + byteArrayOf(tail.toByte()) + packageTail
-        val serverAddr = InetAddress.getByName(config.server)
-        socket?.send(DatagramPacket(packet, packet.size, serverAddr, PORT))
-    }
-
     fun disconnect() {
         isAuthenticated = false
         keepAliveJob?.cancel()
-        socket?.close()
+        if (::socket.isInitialized) {
+            socket.close()
+        }
+        println("Disconnected from DrCOM server")
     }
 
     fun isConnected(): Boolean = isAuthenticated
+
+    private fun ByteArray.padEnd(length: Int): ByteArray {
+        return if (this.size >= length) {
+            this.sliceArray(0 until length)
+        } else {
+            this + ByteArray(length - this.size)
+        }
+    }
 }
