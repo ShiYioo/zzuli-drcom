@@ -58,7 +58,7 @@ jlink {
 
 
     targetPlatform("linux-x64") {
-        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-jdk21.0.8-linux_x64")
+        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-fx-jdk21.0.8-linux_x64")
     }
 
     targetPlatform("windows-x64") {
@@ -66,11 +66,11 @@ jlink {
     }
 
     targetPlatform("mac-x64") {
-        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-jdk21.0.8-macosx_x64")
+        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-fx-jdk21.0.8-macosx_x64")
     }
 
     targetPlatform("mac-aarch64") {
-        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-jdk21.0.8-macosx_aarch64")
+        setJdkHome("/Volumes/shiyi512/jdk/21/zulu/zulu21.44.17-ca-fx-jdk21.0.8-macosx_aarch64")
     }
 
 
