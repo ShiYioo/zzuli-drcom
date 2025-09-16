@@ -73,6 +73,7 @@
       <VBox alignment="CENTER" spacing="15.0">
          <children>
             <Button fx:id="loginButton" mnemonicParsing="false" styleClass="ios-button-primary" text="登录" />
+            <Button fx:id="monitorButton" mnemonicParsing="false" styleClass="ios-button-secondary" text="网络监控" visible="false" />
             <Button fx:id="disconnectButton" mnemonicParsing="false" styleClass="ios-button-secondary" text="断开连接" visible="false" />
             <ProgressIndicator fx:id="progressIndicator" styleClass="ios-progress" visible="false" />
          </children>

@@ -29,16 +29,28 @@ class LoginController : Initializable {
     @FXML private lateinit var autoLoginCheckBox: CheckBox
     @FXML private lateinit var disconnectButton: Button
     @FXML private lateinit var networkInfoLabel: Label
+    @FXML private lateinit var monitorButton: Button
 
     private var drcomClient: DrComClient? = null
     private val prefs = Preferences.userNodeForPackage(LoginController::class.java)
     private var loginJob: Job? = null
     private var isAdvancedVisible = false
 
+    // 添加静态变量来保存全局登录状态
+    companion object {
+        private var globalDrcomClient: DrComClient? = null
+        private var isLoggedIn = false
+    }
+
     override fun initialize(location: URL?, resources: ResourceBundle?) {
         setupUI()
         loadSavedCredentials()
         updateNetworkInfo()
+
+        // 检查是否需要恢复登录状态
+        if (isLoggedIn && globalDrcomClient != null) {
+            restoreLoginState()
+        }
     }
 
     private fun setupUI() {
@@ -61,6 +73,7 @@ class LoginController : Initializable {
         disconnectButton.setOnAction { handleDisconnect() }
         rememberCheckBox.setOnAction { handleRememberCredentials() }
         advancedButton.setOnAction { toggleAdvancedSettings() }
+        monitorButton.setOnAction { openNetworkMonitor() }
 
         // 回车键登录
         usernameField.setOnAction { passwordField.requestFocus() }
@@ -206,8 +219,13 @@ class LoginController : Initializable {
                         // 设置连接状态
                         loginButton.isVisible = false
                         disconnectButton.isVisible = true
+                        monitorButton.isVisible = true  // 显示监控按钮
                         progressIndicator.isVisible = false
                         // 保持输入框禁用状态
+
+                        // 更新全局登录状态
+                        isLoggedIn = true
+                        globalDrcomClient = drcomClient
                     } else {
                         println("登录失败，清理连接并更新UI...")
                         // 登录失败时清理连接
@@ -281,6 +299,7 @@ class LoginController : Initializable {
         loginButton.isVisible = true
         disconnectButton.isVisible = false
         progressIndicator.isVisible = false
+        monitorButton.isVisible = false  // 隐藏监控按钮
         usernameField.isDisable = false
         passwordField.isDisable = false
         serverField.isDisable = false
@@ -291,10 +310,36 @@ class LoginController : Initializable {
         statusLabel.styleClass.removeAll("success-text", "error-text")
         statusLabel.styleClass.add("info-text")
 
+        // 更新全局登录状态
+        isLoggedIn = false
+        globalDrcomClient = null
+
         println("断开连接完成")
     }
 
+    private fun openNetworkMonitor() {
+        try {
+            // 加载监控界面
+            val fxmlLoader = javafx.fxml.FXMLLoader(javaClass.getResource("monitor.fxml"))
+            val scene = javafx.scene.Scene(fxmlLoader.load(), 500.0, 700.0)
+
+            // 添加CSS样式
+            scene.stylesheets.add(javaClass.getResource("ios-style.css")?.toExternalForm())
+
+            // 获取当前窗口并切换场景
+            val stage = monitorButton.scene.window as javafx.stage.Stage
+            stage.scene = scene
+            stage.title = "DrCOM 网络监控"
+            stage.centerOnScreen()
+
+        } catch (e: Exception) {
+            statusLabel.text = "打开监控面板失败: ${e.message}"
+            e.printStackTrace()
+        }
+    }
+
     private fun setLoginState(isLogging: Boolean) {
+
         Platform.runLater {
             if (isLogging) {
                 loginButton.isVisible = false
@@ -356,5 +401,23 @@ class LoginController : Initializable {
             statusLabel.styleClass.removeAll("success-text", "error-text")
             statusLabel.styleClass.add("info-text")
         }
+    }
+
+    fun restoreLoginState() {
+        // 恢复登录状态
+        loginButton.isVisible = false
+        disconnectButton.isVisible = true
+        progressIndicator.isVisible = false
+        monitorButton.isVisible = true  // 显示监控按钮
+
+        usernameField.isDisable = true
+        passwordField.isDisable = true
+        serverField.isDisable = true
+        rememberCheckBox.isDisable = true
+        autoLoginCheckBox.isDisable = true
+
+        statusLabel.text = "已连接"
+        statusLabel.styleClass.removeAll("error-text", "info-text")
+        statusLabel.styleClass.add("success-text")
     }
 }
