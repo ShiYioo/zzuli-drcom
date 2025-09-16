@@ -6,6 +6,7 @@ import javafx.fxml.FXML
 import javafx.fxml.Initializable
 import javafx.scene.control.*
 import javafx.scene.layout.VBox
+import javafx.scene.layout.HBox
 import kotlinx.coroutines.*
 import java.net.URL
 import java.util.*
@@ -18,6 +19,9 @@ class LoginController : Initializable {
     @FXML private lateinit var usernameField: TextField
     @FXML private lateinit var passwordField: PasswordField
     @FXML private lateinit var serverField: TextField
+    @FXML private lateinit var serverContainer: VBox
+    @FXML private lateinit var advancedButton: Button
+    @FXML private lateinit var advancedIndicator: Label
     @FXML private lateinit var loginButton: Button
     @FXML private lateinit var statusLabel: Label
     @FXML private lateinit var progressIndicator: ProgressIndicator
@@ -29,6 +33,7 @@ class LoginController : Initializable {
     private var drcomClient: DrComClient? = null
     private val prefs = Preferences.userNodeForPackage(LoginController::class.java)
     private var loginJob: Job? = null
+    private var isAdvancedVisible = false
 
     override fun initialize(location: URL?, resources: ResourceBundle?) {
         setupUI()
@@ -45,14 +50,39 @@ class LoginController : Initializable {
         // 设置默认服务器
         serverField.text = "10.30.1.19"
 
+        // 高级设置初始状态
+        serverContainer.isVisible = false
+        serverContainer.isManaged = false
+        isAdvancedVisible = false
+        advancedIndicator.text = "▼"
+
         // 绑定事件
         loginButton.setOnAction { handleLogin() }
         disconnectButton.setOnAction { handleDisconnect() }
         rememberCheckBox.setOnAction { handleRememberCredentials() }
+        advancedButton.setOnAction { toggleAdvancedSettings() }
 
         // 回车键登录
         usernameField.setOnAction { passwordField.requestFocus() }
         passwordField.setOnAction { if (loginButton.isVisible) handleLogin() }
+    }
+
+    private fun toggleAdvancedSettings() {
+        isAdvancedVisible = !isAdvancedVisible
+
+        if (isAdvancedVisible) {
+            // 显示高级设置
+            serverContainer.isVisible = true
+            serverContainer.isManaged = true
+            advancedIndicator.text = "▲"
+            advancedButton.text = "隐藏高级设置"
+        } else {
+            // 隐藏高级设置
+            serverContainer.isVisible = false
+            serverContainer.isManaged = false
+            advancedIndicator.text = "▼"
+            advancedButton.text = "高级设置"
+        }
     }
 
     private fun loadSavedCredentials() {
