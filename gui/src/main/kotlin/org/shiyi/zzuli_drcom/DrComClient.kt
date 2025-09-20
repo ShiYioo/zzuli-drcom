@@ -310,24 +310,42 @@ class DrComClient(private val config: DrComConfig) {
             socket.receive(receivePacket)
 
             println("[keep-alive1] heartbeat sent")
+        } catch (e: SocketException) {
+            println("[keep-alive1] socket error: ${e.message} - marking as disconnected")
+            isAuthenticated = false
+            throw e
+        } catch (e: SocketTimeoutException) {
+            println("[keep-alive1] timeout: ${e.message} - marking as disconnected")
+            isAuthenticated = false
+            throw e
         } catch (e: Exception) {
-            println("[keep-alive1] error: ${e.message}")
+            println("[keep-alive1] error: ${e.message} - marking as disconnected")
+            isAuthenticated = false
+            throw e
         }
     }
 
     private fun startKeepAlive() {
+        // 确保之前的心跳任务已经停止
+        keepAliveJob?.cancel()
+
         keepAliveJob = CoroutineScope(Dispatchers.IO).launch {
             println("[keep-alive] starting keep-alive daemon...")
 
-            while (isAuthenticated) {
+            while (isAuthenticated && !currentCoroutineContext().job.isCancelled) {
                 try {
                     keepAlive1()
                     delay(20000) // 20 seconds interval
+                } catch (e: CancellationException) {
+                    println("[keep-alive] keep-alive cancelled")
+                    break
                 } catch (e: Exception) {
-                    println("[keep-alive] error: ${e.message}")
-                    delay(5000)
+                    println("[keep-alive] heartbeat failed: ${e.message}")
+                    // 任何异常都表示连接有问题，应该停止心跳包发送
+                    break
                 }
             }
+            println("[keep-alive] keep-alive daemon stopped")
         }
     }
 

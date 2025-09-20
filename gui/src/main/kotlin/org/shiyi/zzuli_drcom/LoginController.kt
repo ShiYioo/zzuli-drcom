@@ -285,6 +285,12 @@ class LoginController : Initializable {
         loginJob?.cancel()
         loginJob = null
 
+        // 如果当前控制器未持有客户端但全局仍有引用，先绑定确保能正确调用 disconnect
+        if (drcomClient == null && globalDrcomClient != null) {
+            println("[disconnect] 本地 drcomClient 为空，使用 globalDrcomClient 进行断开")
+            drcomClient = globalDrcomClient
+        }
+
         // 清理客户端连接
         try {
             drcomClient?.disconnect()
@@ -404,6 +410,12 @@ class LoginController : Initializable {
     }
 
     fun restoreLoginState() {
+        // 重新绑定本地引用，保证后续断开能真正停止心跳
+        if (drcomClient == null && globalDrcomClient != null) {
+            println("[restoreLoginState] 重新绑定 drcomClient 到全局实例")
+            drcomClient = globalDrcomClient
+        }
+
         // 恢复登录状态
         loginButton.isVisible = false
         disconnectButton.isVisible = true
